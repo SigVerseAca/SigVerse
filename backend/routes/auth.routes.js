@@ -11,6 +11,8 @@ const {
   resetPasswordSchema
 } = require('../utils/validators/authValidator');
 
+// Member 2: Authentication routes handling login, signup, OTP verification, password reset, and GitHub OAuth.
+
 router.get('/github', AuthController.githubAuth);
 router.get('/github/callback', AuthController.githubCallback);
 router.post('/login', validate(localLoginSchema), AuthController.localLogin);
