@@ -2,6 +2,8 @@ const passport = require('passport');
 const GitHubStrategy = require('passport-github2').Strategy;
 const UserRepository = require('../repositories/UserRepository');
 
+// Member 2: Passport configuration for GitHub OAuth authentication strategy.
+
 passport.use(new GitHubStrategy({
     clientID: process.env.GITHUB_CLIENT_ID,
     clientSecret: process.env.GITHUB_CLIENT_SECRET,
