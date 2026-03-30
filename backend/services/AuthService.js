@@ -6,6 +6,8 @@ const ApprovalRequest = require('../models/mongo/ApprovalRequest');
 const OtpService = require('./OtpService');
 const EmailService = require('./EmailService');
 
+// Member 2: This service handles all authentication-related operations including local login, signup, OTP verification, and GitHub OAuth integration.
+
 class AuthService {
   static async localLogin({ email, password }) {
     const normalizedEmail = email.trim().toLowerCase();
