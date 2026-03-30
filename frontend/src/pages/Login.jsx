@@ -13,6 +13,8 @@ import {
 } from '../services/authService';
 import Icon from '../components/Icon';
 
+// Member 2: Login page component handling user authentication including local login, signup, OTP verification, and GitHub OAuth.
+
 const INITIAL_FORM = {
   name: '',
   email: '',
