@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
+// Member 2: AuthCallback component handles the OAuth callback after GitHub authentication, processing the token and redirecting accordingly.
+
 export default function AuthCallback() {
   const navigate = useNavigate();
   const { login } = useAuth();
