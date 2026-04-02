@@ -24,7 +24,7 @@ class AuthService {
       err.status = 403;
       throw err;
     }
-
+ 
     if (credential.status !== 'active' || !credential.user_id) {
       const err = new Error('This account is not active');
       err.status = 403;
