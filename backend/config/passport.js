@@ -12,6 +12,7 @@ passport.use(new GitHubStrategy({
   },
   async (accessToken, refreshToken, profile, done) => {
     try {
+      // GitHub may not always return a public email, so fall back to a deterministic placeholder.
       const email = profile.emails && profile.emails[0] ? profile.emails[0].value : `${profile.username}@github.com`;
       const name = profile.displayName || profile.username;
       const avatar_url = profile.photos && profile.photos[0] ? profile.photos[0].value : null;
@@ -21,8 +22,10 @@ passport.use(new GitHubStrategy({
       user = await UserRepository.findByGithubId(github_id);
 
       if (user) {
+        // Refresh profile data we want to keep in sync on repeat logins.
         user = await UserRepository.patch(user.id, { avatar_url });
       } else {
+        // First GitHub login creates a local learner account linked to the GitHub id.
         user = await UserRepository.create({
           name,
           email,
@@ -39,6 +42,7 @@ passport.use(new GitHubStrategy({
   }
 ));
 
+// The existing session setup stores the resolved user object directly.
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
 
