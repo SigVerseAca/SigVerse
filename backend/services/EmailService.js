@@ -4,6 +4,7 @@ let cachedTransporter = null;
 let warnedMissingConfig = false;
 
 function buildTransporter() {
+  // Reuse the same transporter so we don't recreate SMTP connections on every request.
   if (cachedTransporter) return cachedTransporter;
 
   const host = process.env.SMTP_HOST;
@@ -48,12 +49,14 @@ async function sendEmail({ to, subject, text, html }) {
 }
 
 async function sendOtpEmail(email, otpCode, purpose) {
+  // Convert internal OTP purposes into user-facing email labels.
   const purposeLabel = {
     signup: 'Sign up verification',
     login: 'Login verification',
     reset: 'Password reset'
   }[purpose] || 'Verification';
 
+  // Send both text and HTML so mail clients can choose the best format.
   const text = `Your ${purposeLabel} OTP is ${otpCode}. It expires in ${process.env.OTP_TTL_MINUTES || 10} minutes.`;
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #1f2937;">

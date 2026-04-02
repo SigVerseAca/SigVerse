@@ -5,6 +5,7 @@ const OTP_TTL_MINUTES = parseInt(process.env.OTP_TTL_MINUTES || '10', 10);
 const OTP_MAX_ATTEMPTS = parseInt(process.env.OTP_MAX_ATTEMPTS || '5', 10);
 
 function generateOtpCode() {
+  // Keep OTPs numeric and fixed-length so they're easy to type from email.
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
@@ -15,6 +16,7 @@ class OtpService {
     const codeHash = await bcrypt.hash(otpCode, 10);
     const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
 
+    // Store one active OTP per email/purpose and replace any previous code.
     await EmailOtp.findOneAndUpdate(
       { email: normalizedEmail, purpose },
       { code_hash: codeHash, meta, attempts: 0, expires_at: expiresAt },
@@ -34,6 +36,7 @@ class OtpService {
     }
 
     if (record.expires_at && record.expires_at.getTime() < Date.now()) {
+      // Remove stale entries immediately instead of waiting for MongoDB TTL cleanup.
       await EmailOtp.deleteOne({ _id: record._id });
       const err = new Error('OTP expired. Please request a new one.');
       err.status = 410;
@@ -41,6 +44,7 @@ class OtpService {
     }
 
     if (record.attempts >= OTP_MAX_ATTEMPTS) {
+      // Lock out reused guesses by deleting the OTP after too many failures.
       await EmailOtp.deleteOne({ _id: record._id });
       const err = new Error('Too many incorrect attempts. Please request a new OTP.');
       err.status = 429;
@@ -56,6 +60,7 @@ class OtpService {
       throw err;
     }
 
+    // OTPs are single-use, so consume the record after a successful match.
     await EmailOtp.deleteOne({ _id: record._id });
     return record.meta || {};
   }
