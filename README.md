@@ -1,60 +1,320 @@
-# EduVerse
+# Sigverse
 
-Full-stack course enrollment and learning progress platform with:
+Sigverse is a full-stack learning platform for course discovery, enrollment, guided learning, progress tracking, performance scoring, feedback, and approval-based content management.
 
-- `backend/`: Express + MySQL + MongoDB + GitHub OAuth
-- `frontend/`: React + Vite
+The repository is split into:
 
-This README covers the commands needed to install, run, seed, and test the complete project.
+- `frontend/` - React + Vite client application
+- `backend/` - Express API with MySQL + MongoDB
 
-Unless stated otherwise, run commands from the project root folder.
+## Frontend and Backend in Parallel
+
+| Area | Frontend | Backend |
+| --- | --- | --- |
+| Main responsibility | User interface, routing, forms, dashboards, protected pages | APIs, business logic, authentication, authorization, database access |
+| Core stack | React, React Router, Axios, Vite | Express, Passport, JWT, Joi, Sequelize, Mongoose |
+| Auth responsibility | Stores JWT, redirects users, protects pages with `ProtectedRoute` | Verifies JWT, issues tokens, handles OAuth, OTP, signup, login, reset |
+| Access control | Client-side route restriction for better UX | Server-side enforcement with middleware and workflow checks |
+| Data responsibility | Calls REST APIs and renders data | Reads and writes MySQL and MongoDB |
+| Main security boundary | Helpful UI layer | Real enforcement layer |
+
+## What This Project Includes
+
+### Frontend
+
+The frontend provides the user-facing experience for:
+
+- login, signup, OTP verification, password reset, and GitHub OAuth
+- learner dashboards and enrolled course learning flows
+- instructor and admin panels
+- route-level protection using `ProtectedRoute`
+- token-based API communication using Axios interceptors
+
+Key frontend files:
+
+- `frontend/src/App.jsx` - route definitions
+- `frontend/src/components/ProtectedRoute.jsx` - page protection by auth state and role
+- `frontend/src/hooks/useAuth.js` - auth state bootstrap and session handling
+- `frontend/src/services/api.js` - Axios client with bearer token injection
+- `frontend/src/services/authService.js` - auth API requests
+
+### Backend
+
+The backend provides:
+
+- REST APIs for auth, users, courses, modules, lessons, enrollments, progress, performance, approvals, quizzes, and course feedback
+- JWT authentication middleware
+- role-based authorization middleware
+- GitHub OAuth via Passport
+- local email/password auth with OTP-based verification and password reset
+- MySQL persistence for relational learning data
+- MongoDB persistence for credentials, OTPs, approval requests, and logs
+
+Key backend files:
+
+- `backend/app.js` - Express app wiring
+- `backend/server.js` - startup and database connection
+- `backend/middlewares/authenticate.js` - JWT verification
+- `backend/middlewares/authorize.js` - role-based access control
+- `backend/controllers/AuthController.js` - auth endpoint handlers
+- `backend/services/AuthService.js` - auth logic
+- `backend/config/passport.js` - GitHub OAuth strategy
+
+## Architecture Summary
+
+EduVerse uses two databases:
+
+- MySQL stores users, courses, modules, lessons, enrollments, progress, performance, and feedback.
+- MongoDB stores local credentials, OTPs, approval requests, auth logs, and activity logs.
+
+This lets the project keep core learning data in relational tables while using document storage for flexible auth and workflow records.
+
+## Identity, Authentication, Authorization, and Access Control
+
+These four terms are related but different:
+
+- `Identity` means who the user is.
+- `Authentication` means how the system verifies that identity.
+- `Authorization` means what the user is allowed to do.
+- `Access control` means how those rules are enforced in the app.
+
+### Identity
+
+Identity is mainly represented by the MySQL `users` table. Each user has a role:
+
+- `learner`
+- `instructor`
+- `admin`
+
+For local authentication, extra identity-linked credential data is stored in MongoDB through `LocalCredential`.
+
+### Authentication
+
+EduVerse supports two authentication methods.
+
+#### 1. Local email/password
+
+Routes:
+
+- `POST /auth/signup`
+- `POST /auth/signup/verify`
+- `POST /auth/login`
+- `POST /auth/login/verify`
+- `POST /auth/forgot-password`
+- `POST /auth/reset-password`
+
+Current behavior:
+
+- passwords are hashed with `bcryptjs`
+- signup issues an OTP through `OtpService`
+- OTPs are stored in MongoDB in `email_otps`
+- learner signup creates an active account after OTP verification
+- instructor signup enters an approval workflow after OTP verification
+- login returns a JWT after successful credential validation
+- password reset also uses an OTP flow
+
+Important note:
+
+- the backend contains both `localLogin` and `verifyLoginOtp`
+- the current frontend login flow uses `loginWithEmail` directly and does not complete a separate login OTP step in the UI
+
+#### 2. GitHub OAuth
+
+Routes:
+
+- `GET /auth/github`
+- `GET /auth/github/callback`
+
+Current behavior:
+
+- Passport reads the GitHub profile
+- the backend finds or creates the user
+- new GitHub users are created as `learner` by default
+- the backend generates a JWT
+- the browser is redirected to the frontend callback page with the token
+
+### Session Handling
+
+EduVerse uses stateless bearer-token sessions.
+
+Flow:
+
+1. The backend generates a JWT after successful authentication.
+2. The frontend stores the token in `localStorage` as `jwt_token`.
+3. Axios sends the token in the `Authorization` header.
+4. `authenticate.js` verifies the token.
+5. The decoded identity is attached to `req.user`.
+
+The middleware comment shows a token payload shaped like:
+
+```js
+{ sub, email, role }
+```
+
+### Authorization
+
+Authorization is enforced in the backend using:
+
+- `authenticate` - requires a valid JWT
+- `authorize(...allowedRoles)` - requires one of the listed roles
+
+Example:
+
+```js
+router.post('/', authenticate, authorize('instructor', 'admin'), ...)
+```
+
+This means the request must come from:
+
+- an authenticated user
+- whose role is either `instructor` or `admin`
+
+### Access Control
+
+Access control exists in three layers.
+
+#### 1. Frontend route access control
+
+`ProtectedRoute`:
+
+- redirects unauthenticated users to `/login`
+- redirects users with the wrong role to `/dashboard`
+
+Examples from the route config:
+
+- `/admin` is admin-only
+- `/instructor` is instructor-only
+- `/my-courses`, `/learn/:courseId`, and `/performance` are learner-only
+
+This is useful for user experience, but it is not the main security boundary.
+
+#### 2. Backend API access control
+
+The backend is the real enforcement point.
+
+Examples:
+
+- course, module, and lesson creation require `instructor` or `admin`
+- quiz submission requires `learner`
+- approval actions require `admin`
+- some user-management actions are admin-only
+
+Important implementation note:
+
+- some routes are authenticated but not additionally role-restricted
+- that means any logged-in user may reach them unless deeper controller or service logic limits behavior
+
+#### 3. Workflow-based access control
+
+This project also uses approval workflows as an access-control mechanism.
+
+Example:
+
+- instructor signup does not immediately produce an active instructor account
+- a pending request is created
+- an admin must approve it before that access is activated
+
+That is an example of governance-based authorization, not just role checking.
+
+## Role Model
+
+### Learner
+
+Learners can:
+
+- browse courses
+- enroll in courses
+- track progress
+- complete learning activities
+- submit quiz attempts
+- view performance
+- leave course feedback
+
+### Instructor
+
+Instructors can:
+
+- create and manage courses
+- manage modules, lessons, and quizzes
+- work inside instructor-facing workflows
+- depend on approval-managed actions where required
+
+### Admin
+
+Admins can:
+
+- manage privileged operations
+- approve or reject requests
+- update protected records
+- oversee users and platform operations
+
+## Repository Structure
+
+```text
+.
+├── backend/
+│   ├── config/
+│   ├── controllers/
+│   ├── middlewares/
+│   ├── models/
+│   │   ├── mongo/
+│   │   └── mysql/
+│   ├── repositories/
+│   ├── routes/
+│   ├── services/
+│   ├── utils/
+│   ├── schema.sql
+│   └── server.js
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── context/
+│   │   ├── hooks/
+│   │   ├── pages/
+│   │   ├── services/
+│   │   └── utils/
+│   └── package.json
+└── README.md
+```
+
+## Tech Stack
+
+### Frontend
+
+- React 19
+- React Router
+- Axios
+- Vite
+
+### Backend
+
+- Node.js
+- Express
+- Passport with `passport-github2`
+- JWT with `jsonwebtoken`
+- Joi validation
+- `bcryptjs`
+- `express-rate-limit`
+
+### Databases
+
+- MySQL with Sequelize
+- MongoDB with Mongoose
 
 ## Prerequisites
 
-- Node.js `20+`
+- Node.js 20+
 - npm
-- MySQL running on `localhost:3306`
-- MongoDB running on `localhost:27017`
-- A GitHub OAuth app with callback URL:
+- MySQL running locally
+- MongoDB running locally
+- optionally, a GitHub OAuth app for testing GitHub login
 
-```text
-http://localhost:5000/auth/github/callback
-```
+## Environment Setup
 
-## Project Ports
-
-- Backend: `http://localhost:5000`
-- Frontend: `http://localhost:5173`
-
-Keep the frontend on port `5173` because the backend OAuth redirect expects that URL.
-
-## 1. Start Database Services
-
-If you installed MySQL and MongoDB with Homebrew on macOS, use:
-
-```bash
-brew services start mysql
-brew services start mongodb-community
-```
-
-If you use a different setup, just make sure:
-
-- MySQL is running on `localhost:3306`
-- MongoDB is running on `mongodb://localhost:27017`
-
-## 2. Configure Environment Variables
-
-Open the backend environment file:
-
-```bash
-cd backend
-nano .env
-```
-
-Use values like this:
+Create `backend/.env`:
 
 ```env
-PORT=5000
+PORT=3000
 NODE_ENV=development
 
 MYSQL_HOST=localhost
@@ -65,44 +325,45 @@ MYSQL_DATABASE=edtech_db
 
 MONGO_URI=mongodb://localhost:27017/edtech_logs
 
-JWT_SECRET=your_long_random_secret_key
+JWT_SECRET=your_long_random_secret
 JWT_EXPIRES_IN=7d
+
+FRONTEND_URL=http://localhost:5173
 
 GITHUB_CLIENT_ID=your_github_client_id
 GITHUB_CLIENT_SECRET=your_github_client_secret
-GITHUB_CALLBACK_URL=http://localhost:5000/auth/github/callback
-
-FRONTEND_URL=http://localhost:5173
+GITHUB_CALLBACK_URL=http://localhost:3000/auth/github/callback
 
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX=100
 ```
 
-Save and exit:
+Create `frontend/.env`:
 
-- `Ctrl + O`
-- `Enter`
-- `Ctrl + X`
+```env
+VITE_API_URL=http://localhost:3000
+```
 
-## 3. Install Dependencies
+Why `3000`?
 
-Install backend dependencies:
+- the backend defaults to `process.env.PORT || 3000`
+- the frontend service layer also defaults to `http://localhost:3000`
+
+## Installation
 
 ```bash
 cd backend
 npm install
-```
 
-Install frontend dependencies:
-
-```bash
-cd frontend
+cd ../frontend
 npm install
 ```
 
-## 4. Create the MySQL Database and Base Tables
+## Database Setup
 
-Run the schema file from the backend folder:
+### MySQL
+
+Run:
 
 ```bash
 cd backend
@@ -111,115 +372,88 @@ mysql -u root -p < schema.sql
 
 This creates:
 
-- database `edtech_db`
-- all tables
-- minimal starter data
+- the `edtech_db` database
+- relational tables
+- sample records
 
-## 5. Optional: Load Full Sample Data
+### MongoDB
 
-To populate the project with larger demo data for courses, modules, lessons, enrollments, progress, and logs:
+MongoDB collections are created by the application when needed.
 
-```bash
-cd backend
-npm run seed:sample
-```
+## Running the Project
 
-Use this if you want the UI to look fully populated.
-
-## 6. Run the Backend
-
-Open terminal 1:
+### Start the backend
 
 ```bash
 cd backend
 npm run dev
 ```
 
-Useful backend check:
+Health check:
 
 ```bash
-curl http://localhost:5000/health
+curl http://localhost:3000/health
 ```
 
-## 7. Run the Frontend
-
-Open terminal 2:
+### Start the frontend
 
 ```bash
 cd frontend
-npm run dev -- --port 5173
-```
-
-Open the app:
-
-```bash
-open http://localhost:5173
-```
-
-If `open` does not work on your system, open the URL manually in your browser.
-
-## 8. Login Flow
-
-This project uses GitHub login only.
-
-Login flow:
-
-1. Open `http://localhost:5173/login`
-2. Click the GitHub login button
-3. Complete GitHub OAuth
-4. You will be redirected back to the frontend
-
-Important:
-
-- a brand-new GitHub login is created as `learner` by default
-- if you change a user's role in MySQL, log out and log in again so a fresh JWT is created
-
-## 9. Test Role-Based Access
-
-Check current users:
-
-```bash
-mysql -u root -p -e "USE edtech_db; SELECT id,name,email,role,github_id FROM users;"
-```
-
-Make your GitHub user an instructor:
-
-```bash
-mysql -u root -p -e "USE edtech_db; UPDATE users SET role='instructor' WHERE email='your_github_email@example.com';"
-```
-
-Make your GitHub user an admin:
-
-```bash
-mysql -u root -p -e "USE edtech_db; UPDATE users SET role='admin' WHERE email='your_github_email@example.com';"
-```
-
-Then log out and log in again.
-
-## Quick Start Commands
-
-Use these in order from scratch.
-
-Terminal 1:
-
-```bash
-brew services start mysql
-brew services start mongodb-community
-cd backend
-npm install
-mysql -u root -p < schema.sql
-npm run seed:sample
 npm run dev
 ```
 
-Terminal 2:
+Then open:
 
-```bash
-cd frontend
-npm install
-npm run dev -- --port 5173
-open http://localhost:5173
+```text
+http://localhost:5173
 ```
+
+## API Modules
+
+The backend exposes route groups for:
+
+- `/auth`
+- `/users`
+- `/courses`
+- `/modules`
+- `/lessons`
+- `/enrollments`
+- `/progress`
+- `/performance`
+- `/approvals`
+- `/quizzes`
+- `/course-feedback`
+
+## Security Notes
+
+This project already includes:
+
+- password hashing with `bcryptjs`
+- JWT-based authentication
+- role-based authorization middleware
+- Joi request validation
+- OTP expiry handling in MongoDB
+- rate limiting
+- centralized error handling
+
+Current implementation notes:
+
+- frontend protection is mainly for UX; backend middleware is the real security boundary
+- tokens are stored in `localStorage`, which is simple but has XSS tradeoffs
+- some authenticated routes do not yet show fine-grained ownership checks at the router level
+- approval workflows strengthen access control for instructor onboarding
+
+## Presentation-Friendly Explanation
+
+If someone asks you to explain the system simply, you can say:
+
+1. EduVerse is a full-stack e-learning platform with separate frontend and backend responsibilities.
+2. Identity is stored through user records and roles such as learner, instructor, and admin.
+3. Authentication happens through local credentials with OTP support or through GitHub OAuth.
+4. After authentication, the backend issues a JWT that represents the user identity.
+5. Authorization is checked in backend middleware using role rules.
+6. Access control is layered across frontend route protection, backend API checks, and admin approval workflows.
+7. MySQL stores core platform data, while MongoDB stores flexible auth and workflow data.
 
 ## Useful Commands
 
@@ -236,45 +470,47 @@ Frontend:
 
 ```bash
 cd frontend
-npm run dev -- --port 5173
+npm run dev
 npm run build
 npm run preview
 ```
 
 ## Troubleshooting
 
-### GitHub login fails
+### Backend does not start
+
+Check:
+
+- MySQL is running
+- MongoDB is running
+- `backend/.env` exists
+- `MONGO_URI` is set
+- MySQL credentials are correct
+
+### Login fails
+
+Check:
+
+- `JWT_SECRET` is set
+- the backend URL matches `VITE_API_URL`
+- the frontend can reach `/auth/*`
+
+### GitHub OAuth fails
 
 Check:
 
 - `GITHUB_CLIENT_ID`
 - `GITHUB_CLIENT_SECRET`
-- `GITHUB_CALLBACK_URL=http://localhost:5000/auth/github/callback`
-- your GitHub OAuth app callback URL matches exactly
+- `GITHUB_CALLBACK_URL`
+- the GitHub OAuth app callback URL exactly matches the backend callback URL
 
-### Courses or dashboard show no data
+## Summary
 
-Run:
+EduVerse demonstrates:
 
-```bash
-cd backend
-npm run seed:sample
-```
-
-### Instructor or admin pages do not open
-
-Your account role is probably still `learner`, or you changed the role without logging in again.
-
-## Folder Structure
-
-```text
-backend/
-  app.js
-  server.js
-  schema.sql
-  package.json
-
-frontend/
-  package.json
-  src/
-```
+- frontend and backend integration
+- mixed SQL and NoSQL persistence
+- JWT and OAuth authentication
+- role-based authorization
+- approval-based access governance
+- practical identity and access control for a multi-role educational platform
